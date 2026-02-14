@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'CodeLens — AI-Powered Technical Interviews',
+  title: 'IntoView — AI-Powered Technical Interviews',
   description: 'Replace LeetCode interviews with real-world coding challenges. Powered by Opus 4.6.',
 };
 

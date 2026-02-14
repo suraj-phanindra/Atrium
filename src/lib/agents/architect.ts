@@ -33,7 +33,7 @@ export async function handleToolCall(
       const { url } = input;
       try {
         const response = await fetch(url, {
-          headers: { 'User-Agent': 'CodeLens/1.0' },
+          headers: { 'User-Agent': 'IntoView/1.0' },
           signal: AbortSignal.timeout(15000),
         });
         const html = await response.text();

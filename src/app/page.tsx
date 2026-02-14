@@ -9,7 +9,7 @@ export default function HomePage() {
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#3b82f6] to-[#a78bfa] flex items-center justify-center">
             <span className="text-white text-lg font-bold">{'\u25B8'}</span>
           </div>
-          <span className="text-[#fafafa] text-xl font-semibold tracking-tight">CodeLens</span>
+          <span className="text-[#fafafa] text-xl font-semibold tracking-tight">IntoView</span>
         </div>
       </nav>
 
