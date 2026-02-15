@@ -37,18 +37,17 @@ export default function TerminalComponent({ sessionId }: TerminalProps) {
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(termRef.current);
+
+      // Initial fit + clear to start clean
       requestAnimationFrame(() => {
         fitAddon.fit();
+        term.clear();
         setTimeout(() => { try { fitAddon.fit(); } catch {} }, 100);
       });
 
       // Refit on container resize
       const ro = new ResizeObserver(() => {
-        try {
-          fitAddon.fit();
-        } catch {
-          // ignore if disposed
-        }
+        try { fitAddon.fit(); } catch {}
       });
       ro.observe(termRef.current);
 
@@ -58,8 +57,18 @@ export default function TerminalComponent({ sessionId }: TerminalProps) {
         .channel(`terminal:${sessionId}`)
         .on('broadcast', { event: 'terminal_data' }, ({ payload }) => {
           term.write(payload.data);
-        })
-        .subscribe();
+        });
+
+      // Subscribe and trigger fresh prompt once connected
+      channel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await fetch('/api/sandbox/input', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId, data: '\n' }),
+          });
+        }
+      });
 
       // Send keystrokes to sandbox
       term.onData(async (data) => {

@@ -28,5 +28,16 @@ export async function createInterviewSandbox(
     await sandbox.commands.run('cd /home/user/project && npm install', { timeoutMs: 120000 });
   }
 
+  // Move test files to hidden directory so candidate can't see them
+  await sandbox.commands.run(
+    'mkdir -p /home/user/project/.codelens_tests && ' +
+    'cd /home/user/project && ' +
+    'for f in test_* *_test.* *.test.* *.spec.* conftest.py pytest.ini jest.config*; do ' +
+    '  [ -e "$f" ] && mv "$f" .codelens_tests/; ' +
+    'done; ' +
+    '[ -d tests ] && mv tests .codelens_tests/tests; ' +
+    '[ -d __tests__ ] && mv __tests__ .codelens_tests/__tests__; true'
+  );
+
   return { sandboxId: sandbox.sandboxId, sandbox };
 }

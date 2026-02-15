@@ -1,25 +1,33 @@
 'use client';
 
 import { useState, useCallback, useImperativeHandle, forwardRef } from 'react';
-import { Play, Trash2, Terminal } from 'lucide-react';
+import { Play, Trash2, Terminal, CheckCircle, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface OutputPanelProps {
   sessionId: string;
+  onCanSubmitChange?: (canSubmit: boolean) => void;
+  onSubmit?: () => void;
 }
 
 export interface OutputPanelRef {
   run: () => void;
 }
 
-const OutputPanel = forwardRef<OutputPanelRef, OutputPanelProps>(({ sessionId }, ref) => {
+const OutputPanel = forwardRef<OutputPanelRef, OutputPanelProps>(({ sessionId, onCanSubmitChange, onSubmit }, ref) => {
   const [output, setOutput] = useState<string>('');
+  const [testOutput, setTestOutput] = useState<string>('');
   const [isRunning, setIsRunning] = useState(false);
   const [lastCommand, setLastCommand] = useState<string>('');
+  const [canSubmit, setCanSubmit] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const run = useCallback(async () => {
     setIsRunning(true);
     setOutput('');
+    setTestOutput('');
+    setCanSubmit(false);
+    if (onCanSubmitChange) onCanSubmitChange(false);
     try {
       const res = await fetch('/api/sandbox/run', {
         method: 'POST',
@@ -39,19 +47,26 @@ const OutputPanel = forwardRef<OutputPanelRef, OutputPanelProps>(({ sessionId },
       if (data.stderr) lines.push(`\x1b[stderr]\n${data.stderr}`);
       lines.push(`\nProcess exited with code ${data.exitCode}`);
       setOutput(lines.join('\n'));
+
+      if (data.testOutput) setTestOutput(data.testOutput);
+      setCanSubmit(data.canSubmit || false);
+      if (onCanSubmitChange) onCanSubmitChange(data.canSubmit || false);
     } catch (err: any) {
       setOutput(`Error: ${err.message}`);
     } finally {
       setIsRunning(false);
     }
-  }, [sessionId]);
+  }, [sessionId, onCanSubmitChange]);
 
   useImperativeHandle(ref, () => ({ run }), [run]);
 
   const clear = useCallback(() => {
     setOutput('');
+    setTestOutput('');
     setLastCommand('');
-  }, []);
+    setCanSubmit(false);
+    if (onCanSubmitChange) onCanSubmitChange(false);
+  }, [onCanSubmitChange]);
 
   return (
     <div className="h-full flex flex-col bg-[#09090b]">
@@ -108,6 +123,12 @@ const OutputPanel = forwardRef<OutputPanelRef, OutputPanelProps>(({ sessionId },
                 </div>
               );
             })}
+            {testOutput && (
+              <div className="mt-2 pt-2 border-t border-[#27272a]">
+                <div className="text-[10px] text-[#71717a] mb-1">TEST RESULTS</div>
+                <pre className="text-[#e4e4e7]">{testOutput}</pre>
+              </div>
+            )}
           </pre>
         ) : (
           <div className="flex items-center justify-center h-full text-[#52525b] text-xs">
@@ -119,6 +140,37 @@ const OutputPanel = forwardRef<OutputPanelRef, OutputPanelProps>(({ sessionId },
           </div>
         )}
       </div>
+      {canSubmit && !submitted && (
+        <div className="flex items-center justify-between px-3 py-2 border-t border-[#22c55e]/20 bg-[#22c55e]/5">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-[#22c55e]" />
+            <span className="text-xs text-[#22c55e]">All tests pass! Ready to submit.</span>
+          </div>
+          <button
+            onClick={async () => {
+              setSubmitted(true);
+              await fetch('/api/sandbox/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId }),
+              });
+              if (onSubmit) onSubmit();
+            }}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-md bg-[#22c55e] text-white hover:bg-[#22c55e]/90 transition-colors"
+          >
+            <Send className="w-3 h-3" />
+            Submit
+          </button>
+        </div>
+      )}
+      {submitted && (
+        <div className="flex items-center justify-center px-3 py-2 border-t border-[#22c55e]/20 bg-[#22c55e]/5">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-[#22c55e]" />
+            <span className="text-xs text-[#22c55e] font-medium">Submitted successfully!</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

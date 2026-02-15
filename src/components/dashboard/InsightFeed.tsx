@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 
 interface InsightFeedProps {
   insights: any[];
+  events?: any[];
   sessionStartTime: string;
 }
 
@@ -26,13 +27,20 @@ const SIGNAL_EMOJI: Record<string, string> = {
   red: '\u{1F534}',
 };
 
-type FilterType = 'reasoning_update' | 'signal' | 'copilot_question' | 'phase_change';
+const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
+  code_run: { label: 'CODE RUN', color: '#22c55e', icon: '\u25B6' },
+  file_change: { label: 'FILE CHANGE', color: '#a78bfa', icon: '\uD83D\uDCC4' },
+  submission: { label: 'SUBMITTED', color: '#3b82f6', icon: '\u2713' },
+};
+
+type FilterType = 'reasoning_update' | 'signal' | 'copilot_question' | 'phase_change' | 'events';
 
 const FILTER_OPTIONS: { key: FilterType; label: string; color: string }[] = [
   { key: 'reasoning_update', label: 'Reasoning', color: '#22d3ee' },
   { key: 'signal', label: 'Signals', color: '#fb923c' },
   { key: 'copilot_question', label: 'Copilot', color: '#f472b6' },
   { key: 'phase_change', label: 'Phases', color: '#a78bfa' },
+  { key: 'events', label: 'Events', color: '#22c55e' },
 ];
 
 function formatRelativeTime(timestamp: string, sessionStart: string) {
@@ -44,12 +52,12 @@ function formatRelativeTime(timestamp: string, sessionStart: string) {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
-export function InsightFeed({ insights, sessionStartTime }: InsightFeedProps) {
+export function InsightFeed({ insights, events = [], sessionStartTime }: InsightFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [activeFilters, setActiveFilters] = useState<Set<FilterType>>(
-    new Set(['reasoning_update', 'signal', 'copilot_question', 'phase_change'])
+    new Set(['reasoning_update', 'signal', 'copilot_question', 'phase_change', 'events'])
   );
 
   const toggleFilter = (key: FilterType) => {
@@ -61,12 +69,12 @@ export function InsightFeed({ insights, sessionStartTime }: InsightFeedProps) {
     });
   };
 
-  // Auto-scroll to bottom when new insights arrive
+  // Auto-scroll to bottom when new items arrive
   useEffect(() => {
     if (autoScroll && bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [insights.length, autoScroll]);
+  }, [insights.length, events.length, autoScroll]);
 
   // Detect user scrolling up to pause auto-scroll
   const handleScroll = useCallback(() => {
@@ -76,9 +84,18 @@ export function InsightFeed({ insights, sessionStartTime }: InsightFeedProps) {
     setAutoScroll(atBottom);
   }, []);
 
-  const filtered = insights
+  // Merge events and insights into a single sorted feed
+  const filteredEvents = activeFilters.has('events')
+    ? events
+        .filter(e => e.event_type in EVENT_TYPE_CONFIG)
+        .map(e => ({ ...e, _kind: 'event' as const, _sortTime: new Date(e.timestamp || e.created_at).getTime() }))
+    : [];
+
+  const filteredInsights = insights
     .filter(i => activeFilters.has(i.insight_type))
-    .sort((a, b) => new Date(a.timestamp || a.created_at).getTime() - new Date(b.timestamp || b.created_at).getTime());
+    .map(i => ({ ...i, _kind: 'insight' as const, _sortTime: new Date(i.timestamp || i.created_at).getTime() }));
+
+  const merged = [...filteredInsights, ...filteredEvents].sort((a, b) => a._sortTime - b._sortTime);
 
   return (
     <div className="mx-6 mb-4 rounded-xl border border-[#27272a] bg-[#111114] flex flex-col relative" style={{ height: '420px' }}>
@@ -117,18 +134,18 @@ export function InsightFeed({ insights, sessionStartTime }: InsightFeedProps) {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
       >
-        {filtered.length === 0 && (
+        {merged.length === 0 && (
           <div className="flex items-center justify-center h-full text-[#71717a] text-sm italic">
             Waiting for insights...
           </div>
         )}
-        {filtered.map((insight) => (
-          <InsightCard
-            key={insight.id}
-            insight={insight}
-            sessionStartTime={sessionStartTime}
-          />
-        ))}
+        {merged.map((item) =>
+          item._kind === 'event' ? (
+            <EventCard key={`evt-${item.id}`} event={item} sessionStartTime={sessionStartTime} />
+          ) : (
+            <InsightCard key={item.id} insight={item} sessionStartTime={sessionStartTime} />
+          )
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -143,6 +160,36 @@ export function InsightFeed({ insights, sessionStartTime }: InsightFeedProps) {
         >
           New insights
         </button>
+      )}
+    </div>
+  );
+}
+
+function EventCard({ event, sessionStartTime }: { event: any; sessionStartTime: string }) {
+  const config = EVENT_TYPE_CONFIG[event.event_type] || { label: event.event_type, color: '#71717a', icon: '\u2022' };
+  const time = formatRelativeTime(event.timestamp || event.created_at, sessionStartTime);
+
+  return (
+    <div className="rounded-lg bg-[#09090b] border p-3 animate-fade-in" style={{ borderColor: `${config.color}30` }}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-[10px] font-mono text-[#71717a]">{time}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: config.color }}>
+          {config.icon} {config.label}
+        </span>
+      </div>
+      {event.event_type === 'code_run' && (
+        <div>
+          <p className="text-xs text-[#a1a1aa] font-mono">{event.metadata?.command}</p>
+          <p className="text-xs mt-1" style={{ color: event.metadata?.exit_code === 0 ? '#22c55e' : '#f87171' }}>
+            Exit code: {event.metadata?.exit_code}
+          </p>
+        </div>
+      )}
+      {event.event_type === 'file_change' && (
+        <p className="text-xs text-[#a1a1aa] font-mono">{event.metadata?.name || event.raw_content}</p>
+      )}
+      {event.event_type === 'submission' && (
+        <p className="text-xs text-[#3b82f6]">Candidate submitted their solution</p>
       )}
     </div>
   );

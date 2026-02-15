@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { useParams } from 'next/navigation';
-import { Clock, Loader2, Square, TerminalSquare, FileText, Play } from 'lucide-react';
+import { Clock, Loader2, Square, TerminalSquare, FileText, Play, Save, Send, CheckCircle } from 'lucide-react';
 import { Allotment } from 'allotment';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -43,6 +43,8 @@ export default function CandidatePage() {
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [outputVisible, setOutputVisible] = useState(true);
   const outputRef = useRef<OutputPanelRef>(null);
+  const [canSubmit, setCanSubmit] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   // -- File operations --
 
@@ -130,6 +132,21 @@ export default function CandidatePage() {
       setSaving(false);
     }
   }, [sessionId, activeTab, tabDirty, tabEdited]);
+
+  const saveAllDirtyFiles = useCallback(async () => {
+    const dirtyTabs = openTabs.filter(t => tabDirty[t] && t !== '__CHALLENGE.md');
+    await Promise.all(dirtyTabs.map(async (path) => {
+      const res = await fetch('/api/sandbox/files', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, path, content: tabEdited[path] }),
+      });
+      if (res.ok) {
+        setTabContents(prev => ({ ...prev, [path]: tabEdited[path] }));
+        setTabDirty(prev => ({ ...prev, [path]: false }));
+      }
+    }));
+  }, [openTabs, tabDirty, tabEdited, sessionId]);
 
   const showTerminal = useCallback(() => {
     setTerminalVisible(true);
@@ -327,14 +344,28 @@ export default function CandidatePage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
+            onClick={async () => {
               if (!outputVisible) showOutput();
+              await saveAllDirtyFiles();
               setTimeout(() => outputRef.current?.run(), 0);
             }}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border transition-colors bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e] hover:bg-[#22c55e]/20"
           >
             <Play className="w-3.5 h-3.5" />
             Run
+          </button>
+          <button
+            onClick={saveFile}
+            disabled={!activeTab || !tabDirty[activeTab] || saving}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+              activeTab && tabDirty[activeTab]
+                ? 'bg-[#3b82f6]/10 border-[#3b82f6]/30 text-[#3b82f6] hover:bg-[#3b82f6]/20'
+                : 'bg-[#18181b] border-[#27272a] text-[#52525b] cursor-not-allowed'
+            )}
+          >
+            <Save className="w-3.5 h-3.5" />
+            {saving ? 'Saving...' : 'Save'}
           </button>
           <button
             onClick={showOutput}
@@ -374,6 +405,27 @@ export default function CandidatePage() {
               Brief
             </button>
           )}
+          <button
+            onClick={async () => {
+              if (submitted) return;
+              setSubmitted(true);
+              await fetch('/api/sandbox/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId }),
+              });
+            }}
+            disabled={!canSubmit || submitted}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border transition-all',
+              canSubmit && !submitted
+                ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e] hover:bg-[#22c55e]/20 shadow-[0_0_12px_rgba(34,197,94,0.2)]'
+                : 'bg-[#18181b] border-[#27272a] text-[#52525b] cursor-not-allowed'
+            )}
+          >
+            {submitted ? <CheckCircle className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+            {submitted ? 'Submitted' : 'Submit'}
+          </button>
           <div className="flex items-center gap-2 text-[#a1a1aa] ml-2">
             <Clock className="w-3.5 h-3.5" />
             <span className="font-mono text-xs">{formatTime(elapsed)}</span>
@@ -416,7 +468,12 @@ export default function CandidatePage() {
               </Allotment.Pane>
               {outputVisible && (
                 <Allotment.Pane minSize={100} preferredSize={280}>
-                  <OutputPanel ref={outputRef} sessionId={sessionId} />
+                  <OutputPanel
+                    ref={outputRef}
+                    sessionId={sessionId}
+                    onCanSubmitChange={setCanSubmit}
+                    onSubmit={() => setSubmitted(true)}
+                  />
                 </Allotment.Pane>
               )}
               {terminalVisible && (
@@ -435,15 +492,22 @@ export default function CandidatePage() {
       <StatusBar activeFile={activeTab} dirty={currentDirty} saving={saving} />
 
       {/* Session ended overlay */}
-      {sessionEnded && (
+      {(sessionEnded || submitted) && (
         <div className="absolute inset-0 z-50 bg-[#09090b]/90 flex items-center justify-center">
           <div className="text-center">
-            <div className="w-16 h-16 rounded-full bg-[#3b82f6]/20 flex items-center justify-center mx-auto mb-4">
-              <Square className="w-7 h-7 text-[#3b82f6]" />
+            <div className={cn(
+              'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4',
+              submitted ? 'bg-[#22c55e]/20' : 'bg-[#3b82f6]/20'
+            )}>
+              {submitted ? <CheckCircle className="w-7 h-7 text-[#22c55e]" /> : <Square className="w-7 h-7 text-[#3b82f6]" />}
             </div>
-            <h2 className="text-xl font-semibold text-[#fafafa] mb-2">Interview Ended</h2>
+            <h2 className="text-xl font-semibold text-[#fafafa] mb-2">
+              {submitted ? 'Solution Submitted' : 'Interview Ended'}
+            </h2>
             <p className="text-[#a1a1aa] text-sm max-w-md">
-              This interview session was ended by the interviewer. If you believe this is an error, please contact them.
+              {submitted
+                ? 'Your solution has been submitted successfully. The interviewer will review your work.'
+                : 'This interview session was ended by the interviewer. If you believe this is an error, please contact them.'}
             </p>
           </div>
         </div>

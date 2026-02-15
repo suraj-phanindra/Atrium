@@ -39,6 +39,7 @@ export function DashboardPage({ session }: DashboardPageProps) {
     copilotTips: copilotQuestions.length,
     phaseChanges: phaseChanges.length,
     highPriorityCopilot: copilotQuestions.filter(q => q.content?.priority === 'high').length,
+    codeRuns: events.filter(e => e.event_type === 'code_run').length,
   }), [events, signals, reasoningUpdates, copilotQuestions, phaseChanges]);
 
   const [elapsed, setElapsed] = useState('0m 00s');
@@ -126,6 +127,7 @@ export function DashboardPage({ session }: DashboardPageProps) {
             />
             <InsightFeed
               insights={insights}
+              events={events}
               sessionStartTime={session.started_at}
             />
           </>

@@ -1,18 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { Send, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-function ClaudeIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M16.604 8.516c-.253-.773-1.044-.773-1.297 0l-1.074 3.29-3.29 1.074c-.773.253-.773 1.044 0 1.297l3.29 1.074 1.074 3.29c.253.773 1.044.773 1.297 0l1.074-3.29 3.29-1.074c.773-.253.773-1.044 0-1.297l-3.29-1.074-1.074-3.29Z" fill="#E87A41"/>
-      <path d="M9.396 4.484c.253.773-.158 1.158-.931.855L5.175 4.265l-1.074 3.29c-.253.773-.773.931-1.158.352L.697 4.617c-.385-.579-.158-1.158.507-1.297l3.29-.579L5.573.45c.253-.773.773-.773 1.158-.158l2.246 3.29.42.902Z" fill="#E87A41" opacity="0.6"/>
-    </svg>
-  );
-}
 
 interface Message {
   role: 'user' | 'assistant';
@@ -130,7 +122,7 @@ export default function ClaudeChat({ sessionId, challengeDescription }: ClaudeCh
     <div className="flex flex-col h-full bg-[#09090b]">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[#1e1e22] flex-shrink-0">
-        <ClaudeIcon className="w-4 h-4" />
+        <Image src="/claude-logo.png" alt="Claude" width={16} height={16} />
         <span className="text-sm font-medium text-[#fafafa]">Claude</span>
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#E87A41]/10 text-[#E87A41] border border-[#E87A41]/20 shadow-[0_0_8px_rgba(232,122,65,0.3)] font-mono">
           sonnet 4.5
@@ -141,7 +133,7 @@ export default function ClaudeChat({ sessionId, challengeDescription }: ClaudeCh
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <ClaudeIcon className="w-8 h-8 opacity-40" />
+            <Image src="/claude-logo.png" alt="Claude" width={32} height={32} className="opacity-40" />
             <p className="text-sm text-[#71717a]">
               Ask Claude for help with debugging, understanding the codebase, or writing code.
             </p>
