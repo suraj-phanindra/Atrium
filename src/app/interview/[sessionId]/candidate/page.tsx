@@ -2,34 +2,46 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import dynamic from 'next/dynamic';
-import { Clock, ChevronDown, ChevronUp, Loader2, FolderOpen, X, Save, RotateCw, Square } from 'lucide-react';
+import { Panel, Group, Separator, usePanelRef, type PanelImperativeHandle } from 'react-resizable-panels';
+import { Clock, Loader2, Square, TerminalSquare, FileText } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
-import CodeEditor from '@/components/editor/CodeEditor';
-
-const Terminal = dynamic(() => import('@/components/terminal/Terminal'), { ssr: false });
+import FileExplorer from '@/components/ide/FileExplorer';
+import TabBar from '@/components/ide/TabBar';
+import EditorArea from '@/components/ide/EditorArea';
+import TerminalPanel from '@/components/ide/TerminalPanel';
+import StatusBar from '@/components/ide/StatusBar';
 
 export default function CandidatePage() {
   const params = useParams();
   const sessionId = params.sessionId as string;
+
+  // Session state
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [showBrief, setShowBrief] = useState(true);
   const [elapsed, setElapsed] = useState(0);
   const [sandboxReady, setSandboxReady] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
-  const [showFiles, setShowFiles] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  // File explorer
   const [fileList, setFileList] = useState<string[]>([]);
-  const [fileContent, setFileContent] = useState('');
-  const [editedContent, setEditedContent] = useState('');
-  const [fileLoading, setFileLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
   const [fileListLoading, setFileListLoading] = useState(false);
 
-  // Fetch file list from live sandbox
+  // Multi-tab editor state
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [tabContents, setTabContents] = useState<Record<string, string>>({});
+  const [tabEdited, setTabEdited] = useState<Record<string, string>>({});
+  const [tabDirty, setTabDirty] = useState<Record<string, boolean>>({});
+  const [fileLoading, setFileLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Terminal panel
+  const terminalPanelRef = usePanelRef();
+  const [terminalVisible, setTerminalVisible] = useState(true);
+
+  // -- File operations --
+
   const fetchFileList = useCallback(async () => {
     if (!sandboxReady) return;
     setFileListLoading(true);
@@ -46,16 +58,15 @@ export default function CandidatePage() {
     }
   }, [sessionId, sandboxReady]);
 
-  // Fetch file content from live sandbox
   const fetchFileContent = useCallback(async (path: string) => {
     setFileLoading(true);
-    setDirty(false);
     try {
       const res = await fetch(`/api/sandbox/files?session_id=${sessionId}&path=${encodeURIComponent(path)}`);
       if (res.ok) {
         const data = await res.json();
-        setFileContent(data.content);
-        setEditedContent(data.content);
+        setTabContents((prev) => ({ ...prev, [path]: data.content }));
+        setTabEdited((prev) => ({ ...prev, [path]: data.content }));
+        setTabDirty((prev) => ({ ...prev, [path]: false }));
       }
     } catch (err) {
       console.error('Failed to fetch file:', err);
@@ -64,54 +75,98 @@ export default function CandidatePage() {
     }
   }, [sessionId]);
 
-  // Save file to sandbox
+  const openFile = useCallback((path: string) => {
+    setOpenTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActiveTab(path);
+    if (!(path in tabContents) && path !== '__CHALLENGE.md') {
+      fetchFileContent(path);
+    }
+  }, [tabContents, fetchFileContent]);
+
+  const closeTab = useCallback((path: string) => {
+    if (tabDirty[path]) {
+      if (!window.confirm('Unsaved changes will be lost. Close anyway?')) return;
+    }
+    setOpenTabs((prev) => {
+      const next = prev.filter((p) => p !== path);
+      if (activeTab === path) {
+        const idx = prev.indexOf(path);
+        const newActive = next[Math.min(idx, next.length - 1)] || null;
+        setActiveTab(newActive);
+      }
+      return next;
+    });
+    setTabContents((prev) => { const n = { ...prev }; delete n[path]; return n; });
+    setTabEdited((prev) => { const n = { ...prev }; delete n[path]; return n; });
+    setTabDirty((prev) => { const n = { ...prev }; delete n[path]; return n; });
+  }, [activeTab, tabDirty]);
+
+  const handleEditorChange = useCallback((value: string) => {
+    if (!activeTab) return;
+    setTabEdited((prev) => ({ ...prev, [activeTab]: value }));
+    setTabDirty((prev) => ({ ...prev, [activeTab]: value !== tabContents[activeTab] }));
+  }, [activeTab, tabContents]);
+
   const saveFile = useCallback(async () => {
-    if (!selectedFile || !dirty) return;
+    if (!activeTab || !tabDirty[activeTab] || activeTab === '__CHALLENGE.md') return;
     setSaving(true);
     try {
       const res = await fetch('/api/sandbox/files', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, path: selectedFile, content: editedContent }),
+        body: JSON.stringify({ session_id: sessionId, path: activeTab, content: tabEdited[activeTab] }),
       });
       if (res.ok) {
-        setFileContent(editedContent);
-        setDirty(false);
+        setTabContents((prev) => ({ ...prev, [activeTab]: tabEdited[activeTab] }));
+        setTabDirty((prev) => ({ ...prev, [activeTab]: false }));
       }
     } catch (err) {
       console.error('Failed to save file:', err);
     } finally {
       setSaving(false);
     }
-  }, [sessionId, selectedFile, editedContent, dirty]);
+  }, [sessionId, activeTab, tabDirty, tabEdited]);
 
-  // Keyboard shortcut: Ctrl+S to save
+  const toggleTerminal = useCallback(() => {
+    const panel = terminalPanelRef.current;
+    if (!panel) return;
+    if (panel.isCollapsed()) {
+      panel.expand();
+    } else {
+      panel.collapse();
+    }
+  }, [terminalPanelRef]);
+
+  const handleTerminalResize = useCallback(({ asPercentage }: { asPercentage: number; inPixels: number }) => {
+    setTerminalVisible(asPercentage > 0);
+  }, []);
+
+  const openChallengeBrief = useCallback(() => {
+    const path = '__CHALLENGE.md';
+    if (!openTabs.includes(path)) {
+      setOpenTabs((prev) => [path, ...prev]);
+    }
+    setActiveTab(path);
+  }, [openTabs]);
+
+  // -- Keyboard shortcut: Ctrl+S --
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's' && dirty && selectedFile) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's' && activeTab && tabDirty[activeTab]) {
         e.preventDefault();
         saveFile();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [saveFile, dirty, selectedFile]);
+  }, [saveFile, activeTab, tabDirty]);
 
-  // Load file when selected
+  // -- Auto-fetch file list when sandbox ready --
   useEffect(() => {
-    if (selectedFile) {
-      fetchFileContent(selectedFile);
-    }
-  }, [selectedFile, fetchFileContent]);
+    if (sandboxReady) fetchFileList();
+  }, [sandboxReady, fetchFileList]);
 
-  // Fetch file list when sandbox is ready or files panel is opened
-  useEffect(() => {
-    if (sandboxReady && showFiles) {
-      fetchFileList();
-    }
-  }, [sandboxReady, showFiles, fetchFileList]);
-
-  // Fetch session data
+  // -- Load session + create sandbox --
   useEffect(() => {
     async function load() {
       try {
@@ -149,17 +204,34 @@ export default function CandidatePage() {
     load();
   }, [sessionId]);
 
-  // Timer
+  // -- Open challenge brief as first tab --
+  useEffect(() => {
+    if (!session?.challenges?.description) return;
+    const path = '__CHALLENGE.md';
+    setTabContents((prev) => ({ ...prev, [path]: session.challenges.description }));
+    setTabEdited((prev) => ({ ...prev, [path]: session.challenges.description }));
+    setTabDirty((prev) => ({ ...prev, [path]: false }));
+    if (!openTabs.includes(path)) {
+      setOpenTabs((prev) => prev.includes(path) ? prev : [path, ...prev]);
+      setActiveTab(path);
+    }
+  }, [session?.challenges?.description]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -- Timer --
   useEffect(() => {
     if (!session?.started_at) return;
     const start = new Date(session.started_at).getTime();
+    if (sessionEnded && session.ended_at) {
+      setElapsed(Math.floor((new Date(session.ended_at).getTime() - start) / 1000));
+      return;
+    }
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - start) / 1000));
     }, 1000);
     return () => clearInterval(interval);
-  }, [session?.started_at]);
+  }, [session?.started_at, session?.ended_at, sessionEnded]);
 
-  // Listen for session end + file changes via Supabase Realtime
+  // -- Realtime: session end + file changes --
   useEffect(() => {
     const supabase = createClient();
 
@@ -177,7 +249,6 @@ export default function CandidatePage() {
       })
       .subscribe();
 
-    // Refresh file list when file changes happen in sandbox
     const eventsChannel = supabase
       .channel(`file-changes:${sessionId}`)
       .on('postgres_changes', {
@@ -187,15 +258,21 @@ export default function CandidatePage() {
         filter: `session_id=eq.${sessionId}`,
       }, (payload: any) => {
         if (payload.new.event_type === 'file_change') {
-          // Debounce: refresh file list after a short delay
           setTimeout(() => {
-            if (showFiles) fetchFileList();
-            // If the changed file is currently open, refresh its content
-            if (selectedFile && payload.new.metadata?.name) {
-              const changedName = payload.new.metadata.name;
-              if (selectedFile.endsWith(changedName) && !dirty) {
-                fetchFileContent(selectedFile);
-              }
+            fetchFileList();
+            const changedName = payload.new.metadata?.name;
+            if (changedName) {
+              setOpenTabs((tabs) => {
+                tabs.forEach((tabPath) => {
+                  if (tabPath.endsWith(changedName)) {
+                    setTabDirty((d) => {
+                      if (!d[tabPath]) fetchFileContent(tabPath);
+                      return d;
+                    });
+                  }
+                });
+                return tabs;
+              });
             }
           }, 300);
         }
@@ -206,7 +283,7 @@ export default function CandidatePage() {
       sessionChannel.unsubscribe();
       eventsChannel.unsubscribe();
     };
-  }, [sessionId, showFiles, selectedFile, dirty, fetchFileList, fetchFileContent]);
+  }, [sessionId, fetchFileList, fetchFileContent]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -214,18 +291,11 @@ export default function CandidatePage() {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const handleEditorChange = (value: string) => {
-    setEditedContent(value);
-    setDirty(value !== fileContent);
-  };
-
-  const handleSelectFile = (path: string) => {
-    if (dirty && selectedFile) {
-      const confirmDiscard = window.confirm('You have unsaved changes. Discard them?');
-      if (!confirmDiscard) return;
-    }
-    setSelectedFile(selectedFile === path ? null : path);
-  };
+  // Current tab data
+  const currentContent = activeTab ? (tabEdited[activeTab] ?? '') : '';
+  const currentDirty = activeTab ? (tabDirty[activeTab] ?? false) : false;
+  const isReadOnly = activeTab === '__CHALLENGE.md';
+  const tabs = openTabs.map((path) => ({ path, dirty: tabDirty[path] ?? false }));
 
   if (loading) {
     return (
@@ -240,161 +310,97 @@ export default function CandidatePage() {
   return (
     <div className="h-screen flex flex-col bg-[#09090b] relative">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-[#1e1e22]">
+      <header className="flex items-center justify-between px-4 py-2 border-b border-[#1e1e22] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3b82f6] to-[#a78bfa] flex items-center justify-center">
-            <span className="text-white text-sm font-bold">{'\u25B8'}</span>
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#3b82f6] to-[#a78bfa] flex items-center justify-center">
+            <span className="text-white text-xs font-bold">{'\u25B8'}</span>
           </div>
-          <span className="text-[#fafafa] font-semibold">
+          <span className="text-[#fafafa] font-semibold text-sm">
             {challenge?.title || 'Coding Challenge'}
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowFiles(!showFiles)}
+            onClick={toggleTerminal}
             className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors',
-              showFiles
-                ? 'bg-[#3b82f6]/10 border-[#3b82f6]/30 text-[#3b82f6]'
+              'flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+              terminalVisible
+                ? 'bg-[#f97316]/10 border-[#f97316]/30 text-[#f97316]'
                 : 'bg-[#18181b] border-[#27272a] text-[#a1a1aa] hover:text-[#fafafa]'
             )}
           >
-            <FolderOpen className="w-3.5 h-3.5" />
-            Files
+            <TerminalSquare className="w-3.5 h-3.5" />
+            Terminal
           </button>
-          <div className="flex items-center gap-2 text-[#a1a1aa]">
-            <Clock className="w-4 h-4" />
-            <span className="font-mono text-sm">{formatTime(elapsed)}</span>
-            <span className="text-[#71717a] text-xs">/ {session?.duration_minutes || 45}m</span>
+          {challenge?.description && (
+            <button
+              onClick={openChallengeBrief}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border transition-colors',
+                activeTab === '__CHALLENGE.md'
+                  ? 'bg-[#3b82f6]/10 border-[#3b82f6]/30 text-[#3b82f6]'
+                  : 'bg-[#18181b] border-[#27272a] text-[#a1a1aa] hover:text-[#fafafa]'
+              )}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Brief
+            </button>
+          )}
+          <div className="flex items-center gap-2 text-[#a1a1aa] ml-2">
+            <Clock className="w-3.5 h-3.5" />
+            <span className="font-mono text-xs">{formatTime(elapsed)}</span>
+            <span className="text-[#71717a] text-[10px]">/ {session?.duration_minutes || 45}m</span>
           </div>
         </div>
       </header>
 
-      {/* Challenge Brief */}
-      {challenge?.description && (
-        <div className="border-b border-[#1e1e22]">
-          <button
-            onClick={() => setShowBrief(!showBrief)}
-            className="w-full flex items-center justify-between px-6 py-2 text-sm text-[#a1a1aa] hover:text-[#fafafa] transition-colors"
-          >
-            <span>Challenge Brief</span>
-            {showBrief ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-          {showBrief && (
-            <div className="px-6 pb-4 text-sm text-[#a1a1aa] max-h-48 overflow-y-auto whitespace-pre-wrap">
-              {challenge.description}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Main content: file panel + editor + terminal */}
-      <main className="flex-1 flex flex-row overflow-hidden">
-        {/* File tree panel */}
-        {showFiles && (
-          <div className="w-56 border-r border-[#1e1e22] bg-[#111114] overflow-y-auto flex-shrink-0">
-            <div className="flex items-center justify-between p-3">
-              <span className="text-xs text-[#71717a] uppercase tracking-wide font-medium">Files</span>
-              <button
-                onClick={fetchFileList}
-                disabled={fileListLoading}
-                className="text-[#71717a] hover:text-[#fafafa] transition-colors"
-                title="Refresh file list"
-              >
-                <RotateCw className={cn('w-3 h-3', fileListLoading && 'animate-spin')} />
-              </button>
-            </div>
-            {fileList.length === 0 && !fileListLoading && (
-              <div className="px-3 py-2 text-xs text-[#52525b]">No files found</div>
-            )}
-            {fileListLoading && fileList.length === 0 && (
-              <div className="px-3 py-2 text-xs text-[#52525b] flex items-center gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" /> Loading...
-              </div>
-            )}
-            {fileList.map((path: string) => (
-              <button
-                key={path}
-                onClick={() => handleSelectFile(path)}
-                className={cn(
-                  'w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-[#18181b] transition-colors truncate',
-                  selectedFile === path ? 'bg-[#18181b] text-[#fafafa]' : 'text-[#a1a1aa]'
-                )}
-                title={path}
-              >
-                {path}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* File editor */}
-        {selectedFile && (
-          <div className="w-[480px] border-r border-[#1e1e22] bg-[#09090b] flex flex-col flex-shrink-0">
-            {/* Editor header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-[#1e1e22] flex-shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs text-[#a1a1aa] font-mono truncate">{selectedFile}</span>
-                {dirty && <span className="w-2 h-2 rounded-full bg-[#f59e0b] flex-shrink-0" title="Unsaved changes" />}
-              </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button
-                  onClick={saveFile}
-                  disabled={!dirty || saving}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
-                    dirty
-                      ? 'bg-[#3b82f6] text-white hover:bg-[#3b82f6]/90'
-                      : 'bg-[#18181b] text-[#52525b] cursor-not-allowed'
-                  )}
-                >
-                  {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                  Save
-                </button>
-                <button
-                  onClick={() => { setSelectedFile(null); setDirty(false); }}
-                  className="text-[#71717a] hover:text-[#fafafa] transition-colors p-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Editor body */}
-            {fileLoading ? (
-              <div className="flex-1 flex items-center justify-center text-[#52525b] text-xs">
-                <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Loading file...
-              </div>
-            ) : (
-              <div className="flex-1 min-h-0">
-                <CodeEditor
-                  path={selectedFile!}
-                  content={editedContent}
+      {/* IDE Layout */}
+      <Group orientation="vertical" className="flex-1 min-h-0">
+        <Panel defaultSize={70} minSize={30}>
+          <Group orientation="horizontal">
+            <Panel defaultSize={18} minSize={10} maxSize={30} collapsible>
+              <FileExplorer
+                files={fileList}
+                loading={fileListLoading}
+                activeFile={activeTab}
+                openFiles={openTabs}
+                onSelectFile={openFile}
+                onRefresh={fetchFileList}
+              />
+            </Panel>
+            <Separator className="w-[3px] bg-[#1e1e22] hover:bg-[#3b82f6]/50 transition-colors" />
+            <Panel defaultSize={82}>
+              <div className="flex flex-col h-full">
+                <TabBar
+                  tabs={tabs}
+                  activeTab={activeTab}
+                  onSelectTab={setActiveTab}
+                  onCloseTab={closeTab}
+                />
+                <EditorArea
+                  activeTab={activeTab}
+                  content={currentContent}
+                  loading={fileLoading && activeTab !== '__CHALLENGE.md'}
+                  readOnly={isReadOnly}
                   onChange={handleEditorChange}
                 />
               </div>
-            )}
+            </Panel>
+          </Group>
+        </Panel>
+        <Separator className="h-[3px] bg-[#1e1e22] hover:bg-[#3b82f6]/50 transition-colors" />
+        <Panel
+          panelRef={terminalPanelRef}
+          defaultSize={30}
+          minSize={15}
+          collapsible
+          onResize={handleTerminalResize}
+        >
+          <TerminalPanel sessionId={sessionId} sandboxReady={sandboxReady} />
+        </Panel>
+      </Group>
 
-            {/* Editor footer */}
-            <div className="flex items-center justify-between px-3 py-1.5 border-t border-[#1e1e22] text-[10px] text-[#52525b] flex-shrink-0">
-              <span>{dirty ? 'Modified' : 'Saved'}</span>
-              <span>Ctrl+S to save</span>
-            </div>
-          </div>
-        )}
-
-        {/* Terminal */}
-        <div className="flex-1 p-4 overflow-hidden">
-          {sandboxReady ? (
-            <Terminal sessionId={sessionId} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-[#71717a]">
-              <Loader2 className="w-6 h-6 animate-spin mr-2" />
-              Setting up your environment...
-            </div>
-          )}
-        </div>
-      </main>
+      <StatusBar activeFile={activeTab} dirty={currentDirty} saving={saving} />
 
       {/* Session ended overlay */}
       {sessionEnded && (
@@ -404,7 +410,9 @@ export default function CandidatePage() {
               <Square className="w-7 h-7 text-[#3b82f6]" />
             </div>
             <h2 className="text-xl font-semibold text-[#fafafa] mb-2">Interview Ended</h2>
-            <p className="text-[#a1a1aa] text-sm max-w-md">This interview session was ended by the interviewer. If you believe this is an error, please contact them.</p>
+            <p className="text-[#a1a1aa] text-sm max-w-md">
+              This interview session was ended by the interviewer. If you believe this is an error, please contact them.
+            </p>
           </div>
         </div>
       )}
