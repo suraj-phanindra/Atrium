@@ -38,17 +38,21 @@ export default function TerminalComponent({ sessionId }: TerminalProps) {
       term.loadAddon(fitAddon);
       term.open(termRef.current);
 
-      // Initial fit
-      requestAnimationFrame(() => {
-        fitAddon.fit();
-        setTimeout(() => { try { fitAddon.fit(); } catch {} }, 100);
-      });
-
-      // Refit on container resize
-      const ro = new ResizeObserver(() => {
-        try { fitAddon.fit(); } catch {}
-      });
-      ro.observe(termRef.current);
+      // Sync terminal size with server PTY
+      const syncSize = async () => {
+        try {
+          fitAddon.fit();
+        } catch { return; }
+        const cols = term.cols;
+        const rows = term.rows;
+        if (cols && rows) {
+          fetch('/api/sandbox/resize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId, cols, rows }),
+          }).catch(() => {});
+        }
+      };
 
       // Subscribe to terminal output from sandbox
       const supabase = createClient();
@@ -58,7 +62,27 @@ export default function TerminalComponent({ sessionId }: TerminalProps) {
           term.write(payload.data);
         });
 
-      channel.subscribe();
+      await new Promise<void>((resolve) => {
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') resolve();
+        });
+      });
+
+      // Initial fit + resize PTY to match, then nudge shell to redraw prompt
+      requestAnimationFrame(() => {
+        syncSize().then(() => {
+          // Send empty input to trigger prompt redraw after resize
+          fetch('/api/sandbox/input', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId, data: '' }),
+          }).catch(() => {});
+        });
+      });
+
+      // Refit + resize on container resize
+      const ro = new ResizeObserver(() => syncSize());
+      ro.observe(termRef.current);
 
       // Send keystrokes to sandbox
       term.onData(async (data) => {

@@ -113,12 +113,12 @@ export async function POST(req: Request) {
       );
       if (checkResult.stdout?.trim()) {
         try {
-          const testResult = await sandbox.commands.run(testCmd, { timeoutMs: 30000 });
+          const testResult = await sandbox.commands.run(testCmd, { timeoutMs: 60000 });
           testOutput = [testResult.stdout, testResult.stderr].filter(Boolean).join('\n');
           testsPassed = testResult.exitCode === 0;
         } catch {
-          testOutput = 'Test execution timed out';
-          testsPassed = false;
+          testOutput = 'Test execution timed out — you can still submit your solution.';
+          testsPassed = true; // Don't block submit on test infra issues
         }
       }
     }

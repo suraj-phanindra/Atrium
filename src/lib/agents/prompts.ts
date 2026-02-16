@@ -47,6 +47,7 @@ After generating the challenge, use set_evaluation_rubric to create weighted cri
 - Weights should reflect the interviewer's stated priorities
 - Always include an "AI Tool Usage" criterion (this is an Atrium differentiator)
 - Let the interviewer review and adjust weights before launching
+- CRITICAL: All positive_signals and negative_signals MUST be things observable through terminal output, file changes, code execution results, and AI tool usage patterns. The platform has NO voice, video, chat, or screen-share. You CANNOT observe: verbal communication, written explanations (unless in code/comments), facial expressions, or anything outside the terminal/file system. Examples of OBSERVABLE signals: "runs code before editing", "reads error messages carefully", "uses git diff to review changes", "writes tests", "asks Claude Code targeted questions". Examples of UNOBSERVABLE signals (DO NOT USE): "explains reasoning", "communicates approach", "discusses tradeoffs", "asks clarifying questions to interviewer".
 
 ## Important Behaviors
 
@@ -92,6 +93,23 @@ Negative signals to watch for: ${c.negative_signals.join(', ')}
 ## Your Role
 
 Produce structured insights about the candidate's performance. Evaluate against the rubric above. Every signal you produce should reference which rubric criterion it relates to and the weight of that criterion.
+
+## What You Can Observe (and what you CANNOT)
+
+Your ONLY data sources are:
+- Terminal commands and their output (what the candidate types and what the system returns)
+- File changes (edits, creates, deletes — visible as file_change events)
+- Code execution results (exit codes, stdout, stderr)
+- AI tool usage (Claude Code interactions visible in terminal output)
+- Timing patterns (how long between actions, order of operations)
+
+You CANNOT observe and MUST NOT evaluate:
+- Verbal communication (there is no voice/video channel)
+- Written explanations or discussion (there is no chat with the interviewer)
+- The candidate's internal thought process (unless reflected in their terminal actions)
+- Communication skills, articulation, or explanation quality
+
+IMPORTANT: Absence of communication is NOT a negative signal. The candidate has no way to explain their reasoning to you. Judge them ONLY by their actions: what they type, what they edit, what they run, and the results they produce. If a rubric criterion's signals are not observable through terminal/file data, score it neutrally — do not penalize the candidate for platform limitations.
 
 ## Output Format
 
@@ -156,7 +174,8 @@ Respond with a JSON array. Each object must be one of:
 - Don't repeat previous insights (they're included below for context).
 - If nothing noteworthy happened, return an empty array: []
 - NEVER produce a signal with the same rubric_criterion AND signal_type as one you recently produced. Only produce a new signal for the same criterion if the signal_type changes (e.g., yellow -> green after improvement).
-- Limit yourself to at most 3 insights per cycle. Quality over quantity.`;
+- Limit yourself to at most 3 insights per cycle. Quality over quantity.
+- Never penalize a candidate for not "explaining" or "discussing" their approach. There is no communication channel. Evaluate actions only.`;
 
 export const OBSERVER_USER_MESSAGE = (
   recentEvents: any[],
@@ -173,7 +192,7 @@ ${previousInsights.slice(-3).map(i => `[${i.insight_type}] ${JSON.stringify(i.co
 
 Produce new insights. JSON array only.`;
 
-export const SUMMARY_SYSTEM = `You produce comprehensive post-session evaluations. Score against the custom rubric. Return valid JSON only.`;
+export const SUMMARY_SYSTEM = `You produce comprehensive post-session evaluations based EXCLUSIVELY on observable evidence: terminal commands, file edits, code execution results, and AI tool usage. The platform has no voice, video, or chat channel — the candidate cannot explain their reasoning verbally. Score against the custom rubric using only what you can see in the activity timeline. If a criterion cannot be fairly evaluated from the available evidence, give it a moderate score (5-6) with a note that evidence was limited — do NOT penalize the candidate for platform limitations. Return valid JSON only.`;
 
 export const SUMMARY_USER = (
   challengeDescription: string,
@@ -193,6 +212,8 @@ export const SUMMARY_USER = (
 Score each rubric criterion on a 0-10 scale (10 = exceptional, 0 = no evidence).
 Compute overall_score as the weighted average: sum(score_i * weight_i) / sum(weight_i), rounded to 1 decimal.
 The result MUST be a number between 0.0 and 10.0. Each individual score MUST also be 0-10.
+
+IMPORTANT: Base ALL scores on observable evidence from the activity timeline. The candidate had NO way to communicate verbally or explain their reasoning. Absence of explanation is NOT a concern. Focus on: what commands they ran, what order, what they edited, whether they tested, how they used AI tools, and whether they fixed the bugs. If a criterion has insufficient observable evidence, score 5-6 (neutral) with a note, NOT 0.
 
 Score EACH rubric criterion individually. Produce JSON:
 {

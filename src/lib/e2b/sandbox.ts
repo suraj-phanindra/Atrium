@@ -23,9 +23,17 @@ export async function createInterviewSandbox(
   }
   await sandbox.files.write('/home/user/project/README.md', challengeReadme);
 
-  // Install dependencies if package.json exists
+  // Install dependencies
   if (challengeFiles['package.json']) {
     await sandbox.commands.run('cd /home/user/project && npm install', { timeoutMs: 120000 });
+  }
+  if (challengeFiles['requirements.txt']) {
+    await sandbox.commands.run('cd /home/user/project && pip install -r requirements.txt', { timeoutMs: 120000 });
+  }
+  // Ensure test runner is available
+  const hasPython = Object.keys(challengeFiles).some(f => f.endsWith('.py'));
+  if (hasPython) {
+    await sandbox.commands.run('pip install pytest 2>/dev/null', { timeoutMs: 30000 });
   }
 
   // Move test files to hidden directory so candidate can't see them

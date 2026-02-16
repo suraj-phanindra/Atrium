@@ -189,7 +189,7 @@ export function ChatInterface() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 && showSuggestions && (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <Image src="/atrium-icon.png" alt="Atrium" width={48} height={48} className="rounded-xl mb-4" />
+            <Image src="/atrium-logo.png" alt="Atrium" width={48} height={48} className="rounded-xl mb-4" />
             <h2 className="text-xl font-semibold text-[#fafafa] mb-2">Interview Architect</h2>
             <p className="text-[#71717a] text-sm max-w-md">
               Welcome to Atrium. I&apos;ll help you set up a custom technical interview. To get started, tell me about the role you&apos;re hiring for, or upload a job description and I&apos;ll take it from there.

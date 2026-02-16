@@ -27,8 +27,8 @@ export async function startActivityCapture(sandbox: Sandbox, sessionId: string) 
   let flushTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const handle = await sandbox.pty.create({
-    cols: 120,
-    rows: 40,
+    cols: 80,
+    rows: 24,
     cwd: '/home/user/project',
     onData: async (data: Uint8Array) => {
       const text = new TextDecoder().decode(data);
@@ -60,6 +60,7 @@ export async function startActivityCapture(sandbox: Sandbox, sessionId: string) 
     pty: {
       pid: handle.pid,
       sendInput: (data: string) => sandbox.pty.sendInput(handle.pid, new TextEncoder().encode(data)),
+      resize: (cols: number, rows: number) => sandbox.pty.resize(handle.pid, { cols, rows }),
     },
     stop: () => {
       terminalChannel.unsubscribe();

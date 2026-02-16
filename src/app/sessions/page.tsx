@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Plus, Clock, Users, ArrowRight } from 'lucide-react';
+import { Plus, Clock, Users, ArrowRight, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Session {
@@ -59,17 +59,26 @@ export default function SessionsPage() {
   return (
     <div className="min-h-screen bg-[#09090b]">
       <nav className="flex items-center justify-between px-6 py-3 border-b border-[#1e1e22]">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => router.push('/')}>
           <Image src="/atrium-logo.png" alt="Atrium" width={32} height={32} className="rounded-lg" />
           <span className="text-[#fafafa] font-semibold tracking-tight">Atrium</span>
         </div>
-        <button
-          onClick={() => router.push('/interview/setup')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-[#3b82f6] text-white hover:bg-[#3b82f6]/90 transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          New Interview
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push('/')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-[#27272a] bg-[#18181b] text-[#a1a1aa] hover:text-[#fafafa] transition-colors"
+          >
+            <Home className="w-3.5 h-3.5" />
+            Home
+          </button>
+          <button
+            onClick={() => router.push('/interview/setup')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-[#3b82f6] text-white hover:bg-[#3b82f6]/90 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New Interview
+          </button>
+        </div>
       </nav>
 
       <div className="max-w-4xl mx-auto px-6 py-8">

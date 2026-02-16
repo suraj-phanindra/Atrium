@@ -337,7 +337,7 @@ export default function CandidatePage() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-[#1e1e22] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <Image src="/atrium-icon.png" alt="Atrium" width={28} height={28} className="rounded-lg" />
+          <Image src="/atrium-logo.png" alt="Atrium" width={28} height={28} className="rounded-lg" />
           <span className="text-[#fafafa] font-semibold text-sm">
             {challenge?.title || 'Coding Challenge'}
           </span>

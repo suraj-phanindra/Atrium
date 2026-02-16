@@ -148,6 +148,7 @@ CRITICAL FORMAT RULES:
 - The "description" field should be a brief README (under 500 chars).
 - The "solution_hints" field should be one short paragraph.
 - Do NOT include large comments, headers, or license blocks in generated files.
+- Do NOT include any comments in the code that hint at, explain, or mark the intentional bugs. The candidate must find bugs through reading and testing, not by reading comments. Bug descriptions belong ONLY in the challenge statement and expected_bugs array, never in the code files.
 - Every string value must be properly escaped (newlines as \\n, quotes as \\", no raw line breaks inside JSON strings).
 
 JSON schema:

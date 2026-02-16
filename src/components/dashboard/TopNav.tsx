@@ -16,7 +16,7 @@ export function TopNav() {
   return (
     <nav className="flex items-center justify-between px-6 py-3 border-b border-[#1e1e22] animate-fade-in">
       <div className="flex items-center gap-6">
-        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => router.push('/sessions')}>
+        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => router.push('/')}>
           <Image src="/atrium-logo.png" alt="Atrium" width={32} height={32} className="rounded-lg" />
           <span className="text-[#fafafa] font-semibold tracking-tight">Atrium</span>
         </div>
