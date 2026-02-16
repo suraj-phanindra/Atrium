@@ -130,7 +130,7 @@ export async function startObserverLoop(sessionId: string) {
     } catch (e) {
       console.error('Observer cycle error:', e);
     }
-  }, 15000);
+  }, 10000);
 
   activeLoops.set(sessionId, interval);
 

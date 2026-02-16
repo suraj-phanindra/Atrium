@@ -1,7 +1,11 @@
 import { Sandbox } from 'e2b';
+import Anthropic from '@anthropic-ai/sdk';
 import { getOrReconnectSandbox, activeSandboxes } from '../create/route';
 import { supabaseAdmin } from '@/lib/supabase/server';
 import { stopObserverLoop } from '@/lib/agents/observer';
+import { SUMMARY_SYSTEM, SUMMARY_USER } from '@/lib/agents/prompts';
+
+const anthropic = new Anthropic();
 
 export async function POST(req: Request) {
   try {
@@ -12,10 +16,10 @@ export async function POST(req: Request) {
 
     const supabase = supabaseAdmin();
 
-    // Get session + challenge info
+    // Get session + challenge + rubric info
     const { data: session } = await supabase
       .from('sessions')
-      .select('*, challenges(*)')
+      .select('*, challenges(*), rubrics(*)')
       .eq('id', session_id)
       .single();
 
@@ -71,10 +75,10 @@ export async function POST(req: Request) {
       .update({ status: 'completed', ended_at: new Date().toISOString() })
       .eq('id', session_id);
 
-    // Stop observer loop inline (don't rely on end route for this)
+    // Stop observer loop
     stopObserverLoop(session_id);
 
-    // Kill sandbox inline — end route may hit a different machine where Map is empty
+    // Kill sandbox
     const activeSbInfo = activeSandboxes.get(session_id);
     if (activeSbInfo) {
       activeSbInfo.capture?.stop();
@@ -83,18 +87,80 @@ export async function POST(req: Request) {
       }
       activeSandboxes.delete(session_id);
     } else if (sandbox) {
-      // sandbox from getOrReconnectSandbox — kill it directly
       try { await sandbox.kill(); } catch (e) {
         console.error('[submit] Failed to kill reconnected sandbox:', e);
       }
     }
 
-    // Fire-and-forget summary generation only (sandbox already dead)
-    const origin = new URL(req.url).origin;
-    fetch(`${origin}/api/sessions/${session_id}/end`, { method: 'POST' })
-      .catch((e) => console.error('[submit] Fire-and-forget end route failed:', e));
+    // Generate summary inline — fire-and-forget HTTP was unreliable on multi-machine Fly.io
+    const challenge = (session as any).challenges;
+    const rubric = (session as any).rubrics;
+    const durationSeconds = session.started_at
+      ? Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000)
+      : 0;
 
-    return Response.json({ success: true, testsPassed });
+    const [{ data: allEvents }, { data: allInsights }] = await Promise.all([
+      supabase.from('events').select('*').eq('session_id', session_id).order('timestamp', { ascending: true }),
+      supabase.from('insights').select('*').eq('session_id', session_id).order('timestamp', { ascending: true }),
+    ]);
+
+    let summaryContent;
+    try {
+      console.log('[submit] Generating summary for session', session_id);
+      const response = await anthropic.messages.create({
+        model: 'claude-opus-4-6',
+        max_tokens: 3000,
+        system: SUMMARY_SYSTEM,
+        messages: [{
+          role: 'user',
+          content: SUMMARY_USER(
+            challenge?.description || '',
+            challenge?.expected_bugs || [],
+            rubric?.criteria || [],
+            allEvents || [],
+            allInsights || [],
+            durationSeconds
+          ),
+        }],
+      });
+
+      const textBlock = response.content.find(b => b.type === 'text');
+      const summaryText = textBlock ? textBlock.text : '{}';
+      const cleaned = summaryText.replace(/```json\n?|\n?```/g, '').trim();
+      try {
+        summaryContent = JSON.parse(cleaned);
+      } catch {
+        summaryContent = { overall_score: 0, one_line_summary: 'Failed to parse summary JSON' };
+      }
+      console.log('[submit] Summary generated successfully');
+    } catch (error) {
+      console.error('[submit] Summary generation failed:', error);
+      summaryContent = {
+        overall_score: 0,
+        hiring_signal: 'unknown',
+        one_line_summary: 'Summary generation encountered an error',
+        rubric_scores: [],
+        strengths: [],
+        concerns: [],
+        recommended_follow_ups: [],
+      };
+    }
+
+    // Insert summary insight + session_end event
+    await Promise.all([
+      supabase.from('insights').insert({
+        session_id,
+        insight_type: 'summary',
+        content: summaryContent,
+      }),
+      supabase.from('events').insert({
+        session_id,
+        event_type: 'session_end',
+        raw_content: 'Interview session ended',
+      }),
+    ]);
+
+    return Response.json({ success: true, testsPassed, summary: summaryContent });
   } catch (error: any) {
     return Response.json({ error: error.message }, { status: 500 });
   }
