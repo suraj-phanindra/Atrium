@@ -1,11 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 export function useSessionInsights(sessionId: string) {
   const [insights, setInsights] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+
+  const refetchInsights = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase.from('insights').select('*')
+      .eq('session_id', sessionId)
+      .order('timestamp', { ascending: true });
+    if (data) setInsights(data);
+  }, [sessionId]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -52,6 +60,7 @@ export function useSessionInsights(sessionId: string) {
   return {
     insights,
     events,
+    refetchInsights,
     reasoningUpdates: insights.filter(i => i.insight_type === 'reasoning_update'),
     signals: insights.filter(i => i.insight_type === 'signal'),
     copilotQuestions: insights.filter(i => i.insight_type === 'copilot_question'),

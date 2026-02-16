@@ -1,6 +1,7 @@
 import { Sandbox } from 'e2b';
-import { getOrReconnectSandbox } from '../create/route';
+import { getOrReconnectSandbox, activeSandboxes } from '../create/route';
 import { supabaseAdmin } from '@/lib/supabase/server';
+import { stopObserverLoop } from '@/lib/agents/observer';
 
 export async function POST(req: Request) {
   try {
@@ -70,9 +71,28 @@ export async function POST(req: Request) {
       .update({ status: 'completed', ended_at: new Date().toISOString() })
       .eq('id', session_id);
 
-    // Trigger summary generation (fire-and-forget)
+    // Stop observer loop inline (don't rely on end route for this)
+    stopObserverLoop(session_id);
+
+    // Kill sandbox inline — end route may hit a different machine where Map is empty
+    const activeSbInfo = activeSandboxes.get(session_id);
+    if (activeSbInfo) {
+      activeSbInfo.capture?.stop();
+      try { await activeSbInfo.sandbox.kill(); } catch (e) {
+        console.error('[submit] Failed to kill sandbox:', e);
+      }
+      activeSandboxes.delete(session_id);
+    } else if (sandbox) {
+      // sandbox from getOrReconnectSandbox — kill it directly
+      try { await sandbox.kill(); } catch (e) {
+        console.error('[submit] Failed to kill reconnected sandbox:', e);
+      }
+    }
+
+    // Fire-and-forget summary generation only (sandbox already dead)
     const origin = new URL(req.url).origin;
-    fetch(`${origin}/api/sessions/${session_id}/end`, { method: 'POST' }).catch(() => {});
+    fetch(`${origin}/api/sessions/${session_id}/end`, { method: 'POST' })
+      .catch((e) => console.error('[submit] Fire-and-forget end route failed:', e));
 
     return Response.json({ success: true, testsPassed });
   } catch (error: any) {

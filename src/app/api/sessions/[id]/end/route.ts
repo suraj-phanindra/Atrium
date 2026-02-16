@@ -69,35 +69,50 @@ export async function POST(
       ? Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000)
       : 0;
 
-    // Generate summary with Opus 4.6
-    const response = await anthropic.messages.create({
-      model: 'claude-opus-4-6',
-      max_tokens: 3000,
-      system: SUMMARY_SYSTEM,
-      messages: [{
-        role: 'user',
-        content: SUMMARY_USER(
-          challenge?.description || '',
-          challenge?.expected_bugs || [],
-          rubric?.criteria || [],
-          allEvents || [],
-          allInsights || [],
-          durationSeconds
-        ),
-      }],
-    });
-
-    const textBlock = response.content.find(b => b.type === 'text');
-    const summaryText = textBlock ? textBlock.text : '{}';
-    const cleaned = summaryText.replace(/```json\n?|\n?```/g, '').trim();
+    // Generate summary with Opus 4.6 — fallback on failure so dashboard always transitions
     let summaryContent;
     try {
-      summaryContent = JSON.parse(cleaned);
-    } catch {
-      summaryContent = { overall_score: 0, one_line_summary: 'Failed to generate summary' };
+      console.log('[end] Generating summary for session', sessionId);
+      const response = await anthropic.messages.create({
+        model: 'claude-opus-4-6',
+        max_tokens: 3000,
+        system: SUMMARY_SYSTEM,
+        messages: [{
+          role: 'user',
+          content: SUMMARY_USER(
+            challenge?.description || '',
+            challenge?.expected_bugs || [],
+            rubric?.criteria || [],
+            allEvents || [],
+            allInsights || [],
+            durationSeconds
+          ),
+        }],
+      });
+
+      const textBlock = response.content.find(b => b.type === 'text');
+      const summaryText = textBlock ? textBlock.text : '{}';
+      const cleaned = summaryText.replace(/```json\n?|\n?```/g, '').trim();
+      try {
+        summaryContent = JSON.parse(cleaned);
+      } catch {
+        summaryContent = { overall_score: 0, one_line_summary: 'Failed to parse summary JSON' };
+      }
+      console.log('[end] Summary generated successfully');
+    } catch (error) {
+      console.error('[end] Summary generation failed:', error);
+      summaryContent = {
+        overall_score: 0,
+        hiring_signal: 'unknown',
+        one_line_summary: 'Summary generation encountered an error',
+        rubric_scores: [],
+        strengths: [],
+        concerns: [],
+        recommended_follow_ups: [],
+      };
     }
 
-    // Insert summary insight
+    // ALWAYS insert summary — dashboard is waiting for this
     await supabase.from('insights').insert({
       session_id: sessionId,
       insight_type: 'summary',
@@ -111,14 +126,17 @@ export async function POST(
       raw_content: 'Interview session ended',
     });
 
-    // Update session status
-    await supabase.from('sessions').update({
-      status: 'completed',
-      ended_at: new Date().toISOString(),
-    }).eq('id', sessionId);
+    // Only update session status if not already completed (submit route may have done it)
+    if (session.status !== 'completed') {
+      await supabase.from('sessions').update({
+        status: 'completed',
+        ended_at: new Date().toISOString(),
+      }).eq('id', sessionId);
+    }
 
     return Response.json({ summary: summaryContent, status: 'completed' });
   } catch (error: any) {
+    console.error('[end] Unhandled error for session end route:', error);
     return Response.json({ error: error.message }, { status: 500 });
   }
 }

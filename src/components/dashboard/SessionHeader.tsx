@@ -11,9 +11,10 @@ interface SessionHeaderProps {
   endedAt?: string | null;
   onEndSession?: () => void;
   onExportReport?: () => void;
+  exportDisabled?: boolean;
 }
 
-export function SessionHeader({ title, candidateName, status, startedAt, endedAt, onEndSession, onExportReport }: SessionHeaderProps) {
+export function SessionHeader({ title, candidateName, status, startedAt, endedAt, onEndSession, onExportReport, exportDisabled }: SessionHeaderProps) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -58,7 +59,11 @@ export function SessionHeader({ title, candidateName, status, startedAt, endedAt
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onExportReport} className="px-4 py-2 text-sm rounded-lg bg-[#18181b] border border-[#27272a] text-[#a1a1aa] hover:text-[#fafafa] transition-colors">
+          <button
+            onClick={onExportReport}
+            disabled={exportDisabled}
+            className="px-4 py-2 text-sm rounded-lg bg-[#18181b] border border-[#27272a] text-[#a1a1aa] hover:text-[#fafafa] transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[#a1a1aa]"
+          >
             Export Report
           </button>
           {status !== 'completed' && (
